@@ -36,45 +36,15 @@ final class MiddleClickInterceptor {
     private let systemWide = AXUIElementCreateSystemWide()
     /// The location of a swallowed button press, waiting for its release.
     private var pendingClick: CGPoint?
-    /// Apps already asked to expose their accessibility tree.
-    private var preparedApps: Set<pid_t> = []
 
     init(settings: Settings) {
         self.settings = settings
         // Never stall the input pipeline for long on an unresponsive app.
         AXUIElementSetMessagingTimeout(systemWide, 0.15)
-
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] notification in
-            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            let pid = app?.processIdentifier
-            MainActor.assumeIsolated {
-                if let pid { self?.prepareApp(pid) }
-            }
-        }
     }
 
     @discardableResult
-    func start() -> Bool {
-        prepareFrontmostApp()
-        return tap.start()
-    }
-
-    func prepareFrontmostApp() {
-        if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
-            prepareApp(pid)
-        }
-    }
-
-    /// Chromium and Electron apps build their web accessibility tree only when asked:
-    /// without it a link looks like an empty area.
-    private func prepareApp(_ pid: pid_t) {
-        guard settings.isEnabled, settings.middleClickMissionControl,
-              preparedApps.insert(pid).inserted
-        else { return }
-        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)
-    }
+    func start() -> Bool { tap.start() }
 
     // MARK: - Events
 
@@ -93,6 +63,7 @@ final class MiddleClickInterceptor {
             pendingClick = nil
             guard settings.isEnabled, settings.middleClickMissionControl,
                   event.flags.isDisjoint(with: [.maskCommand, .maskShift, .maskAlternate, .maskControl]),
+                  !isPointingHandCursor,
                   !isOverInteractiveElement(event.location)
             else { return false }
             pendingClick = event.location
@@ -128,6 +99,33 @@ final class MiddleClickInterceptor {
         event.post(tap: .cghidEventTap)
     }
 
+    // MARK: - Cursor
+
+    /// Browsers and web apps show the pointing hand over links even when they don't expose them
+    /// to Accessibility (Chrome builds its web accessibility tree only for screen readers).
+    private var isPointingHandCursor: Bool {
+        guard let cursor = NSCursor.currentSystem else { return false }
+        let isHand = Self.hasSameShape(cursor, NSCursor.pointingHand)
+        if settings.debugLogging {
+            log.notice("""
+                middle click cursor size=\(cursor.image.size.debugDescription, privacy: .public) \
+                hotSpot=\(cursor.hotSpot.debugDescription, privacy: .public) pointingHand=\(isHand, privacy: .public)
+                """)
+        }
+        return isHand
+    }
+
+    /// Compares proportions and relative hot spot, so it also holds with an enlarged cursor
+    /// (Accessibility › Display › Pointer size).
+    private static func hasSameShape(_ cursor: NSCursor, _ reference: NSCursor) -> Bool {
+        let a = cursor.image.size, b = reference.image.size
+        guard a.width > 0, a.height > 0, b.width > 0, b.height > 0 else { return false }
+        let tolerance = 0.03
+        return abs(a.width / a.height - b.width / b.height) < tolerance
+            && abs(cursor.hotSpot.x / a.width - reference.hotSpot.x / b.width) < tolerance
+            && abs(cursor.hotSpot.y / a.height - reference.hotSpot.y / b.height) < tolerance
+    }
+
     // MARK: - Accessibility
 
     /// `true` if the element under the cursor (or one of its ancestors) reacts to a middle click.
@@ -140,9 +138,6 @@ final class MiddleClickInterceptor {
             if settings.debugLogging { log.notice("middle click: no accessibility info, passing through") }
             return true
         }
-
-        var pid: pid_t = 0
-        if AXUIElementGetPid(element, &pid) == .success { prepareApp(pid) }
 
         var path: [String] = []
         defer {

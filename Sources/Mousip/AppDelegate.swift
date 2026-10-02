@@ -139,7 +139,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleMiddleClick() {
         settings.middleClickMissionControl.toggle()
-        middleClick.prepareFrontmostApp()
     }
 
     @objc private func toggleDebugLogging() {

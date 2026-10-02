@@ -82,10 +82,11 @@ takes you straight to the right settings page.
 ## 🪟 Middle click for Mission Control
 
 A middle click often means something: open a link in a new tab, close a tab, paste in a terminal.
-So Mousip asks the Accessibility API what's under the cursor and steps in only if it's empty space:
+So Mousip looks at the cursor and asks the Accessibility API what's under it, and steps in only if it's empty space:
 
 | Under the cursor | Middle click |
 | --- | --- |
+| Anything showing the pointing-hand cursor (links, in any browser) | Passed to the app as usual |
 | Link, tab, button, menu, Dock icon, text field | Passed to the app as usual |
 | Page background, plain text, window background, desktop | Opens Mission Control |
 | Anything, with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>⌥</kbd> or <kbd>⌃</kbd> held | Passed to the app as usual |
@@ -95,8 +96,9 @@ Middle **drags** (panning a canvas in Figma, Blender, maps…) are recognized af
 movement and replayed to the app, so they keep working.
 
 > [!TIP]
-> Chrome and Electron apps build their web accessibility tree only when asked. While the option is on,
-> Mousip asks them to (`AXManualAccessibility`), otherwise a link would look like an empty spot.
+> Chrome doesn't expose web pages to Accessibility unless a screen reader is running, so to Mousip
+> a link there looks like an empty area. That's why the pointing-hand cursor is checked first:
+> it works in every browser and web app without slowing them down.
 
 ## ⚙️ How it works
 
@@ -108,7 +110,8 @@ movement and replayed to the app, so they keep working.
    (<kbd>⌃←</kbd> / <kbd>⌃→</kbd> by default), read from `com.apple.symbolichotkeys`.
 4. Handled horizontal events are consumed, so apps don't scroll sideways.
    With <kbd>⌥</kbd> (or <kbd>⇧</kbd>) held, they pass through untouched.
-5. A second tap watches the middle button. On press it hit-tests the element under the cursor
+5. A second tap watches the middle button. On press it checks whether the cursor is the pointing hand
+   (`NSCursor.currentSystem`), then hit-tests the element under the cursor
    (`AXUIElementCopyElementAtPosition`) and walks up its ancestors looking for something clickable.
    If there's nothing, it swallows the click and opens Mission Control on release
    (by launching `Mission Control.app`, so it works whatever shortcut is assigned to it).
@@ -121,7 +124,7 @@ movement and replayed to the app, so they keep working.
 | "Test" doesn't switch Spaces | The "Move left/right a space" shortcuts are disabled (Keyboard › Keyboard Shortcuts › Mission Control). |
 | A single tilt skips several Spaces | The mouse repeats the event at intervals longer than 0.3 s: increase `gestureGap` in `ScrollInterceptor.swift`. |
 | The log never shows a non-zero `h=` | The mouse doesn't report tilt as horizontal scrolling (for example it sends buttons 4/5 instead). |
-| A middle click on a link opens Mission Control | The app doesn't expose that link to Accessibility. Enable Debug Logging to see the element roles under the cursor, and add the missing role to `interactiveRoles` in `MiddleClickInterceptor.swift`. |
+| A middle click on a link opens Mission Control | The link doesn't show the pointing hand and isn't exposed to Accessibility. Enable Debug Logging to see the cursor and the element roles under it, and add the missing role to `interactiveRoles` in `MiddleClickInterceptor.swift`. |
 | A middle click on an empty spot does nothing | The app didn't answer in time, or the spot is inside a clickable element: check the log. |
 
 ## 🗂️ Project structure
@@ -131,7 +134,7 @@ Sources/Mousip/
 ├── AppDelegate.swift             menu bar icon, menu and permissions
 ├── EventTap.swift                shared CGEventTap wrapper
 ├── ScrollInterceptor.swift       tilt filtering and grouping into gestures
-├── MiddleClickInterceptor.swift  middle click → Mission Control, with the Accessibility hit test
+├── MiddleClickInterceptor.swift  middle click → Mission Control (cursor + Accessibility checks)
 ├── SpaceSwitcher.swift           reading and posting the system shortcuts
 └── Settings.swift                preferences (UserDefaults)
 Resources/
