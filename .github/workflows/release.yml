@@ -1,0 +1,103 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Set version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          fi
+          echo "BUILD_NUMBER=${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - name: Import signing certificate
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -f pkcs12 -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+          identity="$(security find-identity -v -p codesigning "$keychain" \
+            | grep -m1 'Developer ID Application' | sed -E 's/.*"(.+)"/\1/')"
+          [[ -n "$identity" ]] || { echo "No Developer ID Application identity in the certificate" >&2; exit 1; }
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Build app
+        run: ARCHS="arm64 x86_64" ./build.sh
+
+      - name: Notarize app
+        if: env.SIGN_IDENTITY != '' && env.APPLE_ID != ''
+        run: |
+          ditto -c -k --keepParent build/Mousip.app "$RUNNER_TEMP/Mousip-notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/Mousip-notarize.zip" --wait \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          xcrun stapler staple build/Mousip.app
+
+      - name: Package
+        run: scripts/package.sh
+
+      - name: Notarize disk image
+        if: env.SIGN_IDENTITY != '' && env.APPLE_ID != ''
+        run: |
+          xcrun notarytool submit build/Mousip.dmg --wait \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          xcrun stapler staple build/Mousip.dmg
+
+      - name: Verify
+        run: |
+          lipo -info build/Mousip.app/Contents/MacOS/Mousip
+          codesign --verify --deep --strict --verbose=2 build/Mousip.app
+          if [[ -n "${SIGN_IDENTITY:-}" && -n "${APPLE_ID:-}" ]]; then
+            spctl --assess --type execute --verbose build/Mousip.app
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mousip
+          path: |
+            build/Mousip.dmg
+            build/Mousip.zip
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/Mousip.dmg
+            build/Mousip.zip
+          generate_release_notes: true
