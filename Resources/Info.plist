@@ -8,6 +8,8 @@
 	<string>Mousip</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.mousip.app</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleExecutable</key>
 	<string>Mousip</string>
 	<key>CFBundlePackageType</key>

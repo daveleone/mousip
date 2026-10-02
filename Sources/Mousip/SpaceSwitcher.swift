@@ -1,5 +1,5 @@
+import AppKit
 import CoreGraphics
-import Foundation
 
 enum SpaceDirection: Sendable {
     case left, right
@@ -21,8 +21,11 @@ final class SpaceSwitcher {
     /// Reads the shortcut the user has configured, so customized shortcuts keep working.
     func shortcut(for direction: SpaceDirection) -> Shortcut {
         // System "symbolic hot key" IDs: 79 = Move left a space, 81 = Move right a space.
-        let hotKeyID = direction == .left ? "79" : "81"
-        var shortcut = Shortcut(keyCode: direction == .left ? 123 : 124, flags: .maskControl, isEnabled: true)
+        systemShortcut(id: direction == .left ? "79" : "81", defaultKeyCode: direction == .left ? 123 : 124)
+    }
+
+    private func systemShortcut(id hotKeyID: String, defaultKeyCode: CGKeyCode) -> Shortcut {
+        var shortcut = Shortcut(keyCode: defaultKeyCode, flags: .maskControl, isEnabled: true)
 
         let domain = "com.apple.symbolichotkeys" as CFString
         CFPreferencesAppSynchronize(domain)
@@ -52,7 +55,23 @@ final class SpaceSwitcher {
             log.error("Shortcut for moving \(direction == .left ? "left" : "right", privacy: .public) a space is disabled")
             return
         }
+        post(shortcut)
+    }
 
+    /// Opens (or closes) Mission Control by launching its app, which works whatever shortcut
+    /// (if any) the user assigned to it: a synthetic F-key press isn't always recognized.
+    func toggleMissionControl() {
+        NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: "/System/Applications/Mission Control.app"),
+            configuration: NSWorkspace.OpenConfiguration()
+        ) { _, error in
+            if let error {
+                log.error("Could not open Mission Control: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private func post(_ shortcut: Shortcut) {
         var flags = shortcut.flags
         // Physical arrow keys always carry the Fn and numeric pad flags as well: mimic them.
         if (123...126).contains(shortcut.keyCode) {

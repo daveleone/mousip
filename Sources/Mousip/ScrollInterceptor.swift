@@ -36,10 +36,12 @@ struct ScrollSample: Sendable {
 @MainActor
 final class ScrollInterceptor {
     var onSwitch: ((SpaceDirection) -> Void)?
-    private(set) var isRunning = false
+    var isRunning: Bool { tap.isRunning }
 
     private let settings: Settings
-    private var tap: CFMachPort?
+    private lazy var tap = EventTap(name: "Scroll", events: [.scrollWheel]) { [unowned self] _, event in
+        handle(ScrollSample(event))
+    }
 
     // A single wheel tilt often produces a burst of events: we group them into one "gesture".
     /// Pause without horizontal events after which a new gesture starts.
@@ -55,40 +57,11 @@ final class ScrollInterceptor {
         self.settings = settings
     }
 
-    /// Creates the event tap. Fails if the app lacks the Accessibility permission.
     @discardableResult
-    func start() -> Bool {
-        guard !isRunning else { return true }
-        let mask = CGEventMask(1 << CGEventType.scrollWheel.rawValue)
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: mask,
-            callback: scrollTapCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
-            log.error("Could not create the event tap (missing Accessibility permission?)")
-            return false
-        }
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        self.tap = tap
-        isRunning = true
-        log.notice("Event tap active")
-        return true
-    }
-
-    /// macOS disables the tap if the callback is too slow: turn it back on.
-    fileprivate func reenable() {
-        guard let tap else { return }
-        CGEvent.tapEnable(tap: tap, enable: true)
-        log.notice("Event tap re-enabled")
-    }
+    func start() -> Bool { tap.start() }
 
     /// Returns `true` if the event should be consumed.
-    fileprivate func handle(_ sample: ScrollSample) -> Bool {
+    private func handle(_ sample: ScrollSample) -> Bool {
         if settings.debugLogging {
             log.notice("""
                 scroll v=\(sample.vertical, privacy: .public) h=\(sample.horizontal, privacy: .public) \
@@ -129,28 +102,5 @@ final class ScrollInterceptor {
             log.notice("→ Space \(direction == .left ? "left" : "right", privacy: .public)")
         }
         onSwitch?(direction)
-    }
-}
-
-/// C callback for the event tap: runs on the main run loop.
-private func scrollTapCallback(
-    proxy: CGEventTapProxy,
-    type: CGEventType,
-    event: CGEvent,
-    refcon: UnsafeMutableRawPointer?
-) -> Unmanaged<CGEvent>? {
-    guard let refcon else { return Unmanaged.passUnretained(event) }
-    let interceptor = Unmanaged<ScrollInterceptor>.fromOpaque(refcon).takeUnretainedValue()
-
-    switch type {
-    case .tapDisabledByTimeout, .tapDisabledByUserInput:
-        MainActor.assumeIsolated { interceptor.reenable() }
-        return Unmanaged.passUnretained(event)
-    case .scrollWheel:
-        let sample = ScrollSample(event)
-        let consume = MainActor.assumeIsolated { interceptor.handle(sample) }
-        return consume ? nil : Unmanaged.passUnretained(event)
-    default:
-        return Unmanaged.passUnretained(event)
     }
 }

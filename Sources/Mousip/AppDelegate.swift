@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let settings = Settings()
     private let switcher = SpaceSwitcher()
     private lazy var interceptor = ScrollInterceptor(settings: settings)
+    private lazy var middleClick = MiddleClickInterceptor(settings: settings)
     private var statusItem: NSStatusItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -19,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         interceptor.onSwitch = { [switcher] direction in
             switcher.switchSpace(direction)
         }
+        middleClick.onClick = { [switcher] in
+            switcher.toggleMissionControl()
+        }
         startWhenTrusted()
         updateIcon()
     }
@@ -30,16 +34,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startWhenTrusted() {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         if AXIsProcessTrustedWithOptions(options) {
-            interceptor.start()
+            startInterceptors()
             return
         }
         Task { @MainActor [weak self] in
             while !AXIsProcessTrusted() {
                 try? await Task.sleep(for: .seconds(1.5))
             }
-            self?.interceptor.start()
+            self?.startInterceptors()
             self?.updateIcon()
         }
+    }
+
+    private func startInterceptors() {
+        interceptor.start()
+        middleClick.start()
     }
 
     private var isWorking: Bool {
@@ -55,45 +64,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        let trusted = AXIsProcessTrusted()
-        let status: String
-        if !trusted {
-            status = "Accessibility permission missing"
-        } else if !interceptor.isRunning {
-            status = "Restart Mousip to activate it"
-        } else if !settings.isEnabled {
-            status = "Paused"
-        } else {
-            status = "Active: tilt the wheel to switch Spaces"
-        }
-        menu.addItem(infoItem(status))
-        if trusted && interceptor.isRunning {
-            menu.addItem(infoItem("Hold ⌥ for normal horizontal scrolling"))
-        }
-
-        if !trusted {
-            menu.addItem(actionItem("Grant Accessibility Access…", #selector(openAccessibilitySettings)))
-        }
-        if switcher.hasDisabledShortcut {
+        // Only the essentials, plus problems when there are any. Hold ⌥ while opening for the extras.
+        if !AXIsProcessTrusted() {
+            menu.addItem(actionItem("⚠︎ Grant Accessibility Access…", #selector(openAccessibilitySettings)))
             menu.addItem(.separator())
-            menu.addItem(infoItem("⚠︎ Mission Control \"Move a space\" shortcuts are disabled"))
-            menu.addItem(actionItem("Open Keyboard Shortcuts…", #selector(openKeyboardSettings)))
+        } else if !interceptor.isRunning {
+            menu.addItem(infoItem("⚠︎ Restart Mousip to activate it"))
+            menu.addItem(.separator())
+        } else if switcher.hasDisabledShortcut {
+            menu.addItem(actionItem("⚠︎ Enable “Move a space” Shortcuts…", #selector(openKeyboardSettings)))
+            menu.addItem(.separator())
         }
 
-        menu.addItem(.separator())
-        menu.addItem(toggleItem("Enabled", settings.isEnabled, #selector(toggleEnabled)))
+        let enabled = toggleItem("Enabled", settings.isEnabled, #selector(toggleEnabled))
+        enabled.toolTip = "Hold ⌥ while tilting the wheel to scroll sideways as usual."
+        menu.addItem(enabled)
         menu.addItem(toggleItem("Invert Direction", settings.invertDirection, #selector(toggleInvertDirection)))
-        menu.addItem(toggleItem("Repeat While Wheel Is Held", settings.repeatWhileHeld, #selector(toggleRepeat)))
+        menu.addItem(toggleItem("Repeat While Held", settings.repeatWhileHeld, #selector(toggleRepeat)))
+        let missionControl = toggleItem("Middle Click for Mission Control", settings.middleClickMissionControl,
+                                        #selector(toggleMiddleClick))
+        missionControl.toolTip = "Only on empty spots: middle clicks on links, tabs, buttons and text work as usual."
+        menu.addItem(missionControl)
 
         menu.addItem(.separator())
-        let testMenu = NSMenu()
-        testMenu.addItem(actionItem("Space Left", #selector(testLeft)))
-        testMenu.addItem(actionItem("Space Right", #selector(testRight)))
-        let testItem = NSMenuItem(title: "Test Space Switch", action: nil, keyEquivalent: "")
-        testItem.submenu = testMenu
-        menu.addItem(testItem)
         menu.addItem(toggleItem("Launch at Login", SMAppService.mainApp.status == .enabled, #selector(toggleLaunchAtLogin)))
-        menu.addItem(toggleItem("Debug Logging", settings.debugLogging, #selector(toggleDebugLogging)))
+
+        if NSEvent.modifierFlags.contains(.option) {
+            let testMenu = NSMenu()
+            testMenu.addItem(actionItem("Space Left", #selector(testLeft)))
+            testMenu.addItem(actionItem("Space Right", #selector(testRight)))
+            testMenu.addItem(actionItem("Mission Control", #selector(testMissionControl)))
+            let testItem = NSMenuItem(title: "Test", action: nil, keyEquivalent: "")
+            testItem.submenu = testMenu
+            menu.addItem(testItem)
+            menu.addItem(toggleItem("Debug Logging", settings.debugLogging, #selector(toggleDebugLogging)))
+        }
 
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Mousip", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -132,6 +137,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.repeatWhileHeld.toggle()
     }
 
+    @objc private func toggleMiddleClick() {
+        settings.middleClickMissionControl.toggle()
+        middleClick.prepareFrontmostApp()
+    }
+
     @objc private func toggleDebugLogging() {
         settings.debugLogging.toggle()
     }
@@ -139,11 +149,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func testLeft() { testSwitch(.left) }
     @objc private func testRight() { testSwitch(.right) }
 
-    /// Waits for the menu to close before posting the shortcut.
+    @objc private func testMissionControl() {
+        afterMenuCloses { [switcher] in switcher.toggleMissionControl() }
+    }
+
     private func testSwitch(_ direction: SpaceDirection) {
-        Task { @MainActor [switcher] in
+        afterMenuCloses { [switcher] in switcher.switchSpace(direction) }
+    }
+
+    /// Waits for the menu to close before posting a shortcut.
+    private func afterMenuCloses(_ action: @escaping @MainActor () -> Void) {
+        Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
-            switcher.switchSpace(direction)
+            action()
         }
     }
 

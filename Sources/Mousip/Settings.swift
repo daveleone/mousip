@@ -7,6 +7,7 @@ final class Settings {
         static let enabled = "enabled"
         static let invertDirection = "invertDirection"
         static let repeatWhileHeld = "repeatWhileHeld"
+        static let middleClickMissionControl = "middleClickMissionControl"
         static let debugLogging = "debugLogging"
     }
 
@@ -17,6 +18,7 @@ final class Settings {
             Key.enabled: true,
             Key.invertDirection: false,
             Key.repeatWhileHeld: false,
+            Key.middleClickMissionControl: false,
             Key.debugLogging: false,
         ])
     }
@@ -36,6 +38,12 @@ final class Settings {
     var repeatWhileHeld: Bool {
         get { defaults.bool(forKey: Key.repeatWhileHeld) }
         set { defaults.set(newValue, forKey: Key.repeatWhileHeld) }
+    }
+
+    /// Opens Mission Control on a middle click that doesn't land on a link, button, tab or text.
+    var middleClickMissionControl: Bool {
+        get { defaults.bool(forKey: Key.middleClickMissionControl) }
+        set { defaults.set(newValue, forKey: Key.middleClickMissionControl) }
     }
 
     /// Writes every scroll event to the system log (subsystem "com.mousip.app").
