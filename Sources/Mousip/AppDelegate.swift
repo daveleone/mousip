@@ -1,30 +1,24 @@
 import AppKit
 import ApplicationServices
-import ServiceManagement
+import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let settings = Settings()
     private let switcher = SpaceSwitcher()
     private lazy var interceptor = ScrollInterceptor(settings: settings)
     private lazy var middleClick = MiddleClickInterceptor(settings: settings)
     private lazy var model = MenuModel(settings: settings)
-    private lazy var panel = StatusPanel(rootView: MenuView(model: model))
     private var statusItem: NSStatusItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "computermouse", accessibilityDescription: "Mousip")
-            button.target = self
-            button.action = #selector(togglePanel)
-            button.sendAction(on: [.leftMouseDown, .rightMouseDown])
-        }
+        statusItem.button?.image = NSImage(systemSymbolName: "computermouse", accessibilityDescription: "Mousip")
+        statusItem.menu = makeMenu()
 
         model.onSettingsChange = { [weak self] in self?.updateIcon() }
         model.onAction = { [weak self] in self?.perform($0) }
         model.onError = { [weak self] in self?.show($0) }
-        panel.onClose = { [weak self] in self?.statusItem.button?.highlight(false) }
 
         interceptor.onSwitch = { [switcher] direction in
             switcher.switchSpace(direction)
@@ -69,19 +63,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.appearsDisabled = !isWorking
     }
 
-    // MARK: - Panel
+    // MARK: - Menu
 
-    @objc private func togglePanel() {
-        if panel.isVisible {
-            panel.close()
-            return
-        }
+    /// A real NSMenu hosting the SwiftUI panel: unlike a custom window, an open menu keeps the
+    /// menu bar visible in full-screen Spaces, and the system handles highlighting and dismissal.
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+        menu.addItem(NSMenuItem())  // holds the SwiftUI view, set on every open
+
+        // Key equivalents only reach menu items while the menu is open.
+        let quit = NSMenuItem(title: "Quit Mousip", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.isHidden = true
+        quit.allowsKeyEquivalentWhenHidden = true
+        menu.addItem(quit)
+        return menu
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
         model.problem = currentProblem()
         model.showsExtras = NSEvent.modifierFlags.contains(.option)
         model.reload()
-        guard let button = statusItem.button else { return }
-        button.highlight(true)
-        panel.show(below: button)
+
+        // A fresh hosting view measures the current state right away; an existing one would
+        // report its old size until the next run loop pass, cutting off newly shown sections.
+        let view = NSHostingView(rootView: MenuView(model: model))
+        view.frame.size = view.fittingSize
+        menu.items.first?.view = view
     }
 
     private func currentProblem() -> MenuModel.Problem? {
@@ -94,25 +102,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func perform(_ action: MenuModel.Action) {
         switch action {
         case .openAccessibilitySettings:
-            panel.close()
+            closeMenu()
             openAccessibilitySettings()
         case .openKeyboardSettings:
-            panel.close()
+            closeMenu()
             openKeyboardSettings()
         case .testLeft:
-            afterPanelCloses { [switcher] in switcher.switchSpace(.left) }
+            afterMenuCloses { [switcher] in switcher.switchSpace(.left) }
         case .testRight:
-            afterPanelCloses { [switcher] in switcher.switchSpace(.right) }
+            afterMenuCloses { [switcher] in switcher.switchSpace(.right) }
         case .testMissionControl:
-            afterPanelCloses { [switcher] in switcher.toggleMissionControl() }
+            afterMenuCloses { [switcher] in switcher.toggleMissionControl() }
         case .quit:
             NSApp.terminate(nil)
         }
     }
 
-    /// Closes the panel and waits for it to fade before posting a shortcut.
-    private func afterPanelCloses(_ action: @escaping @MainActor () -> Void) {
-        panel.close()
+    private func closeMenu() {
+        statusItem.menu?.cancelTracking()
+    }
+
+    /// Closes the menu and waits for it to fade before posting a shortcut.
+    private func afterMenuCloses(_ action: @escaping @MainActor () -> Void) {
+        closeMenu()
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
             action()
@@ -120,9 +132,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func show(_ error: Error) {
-        panel.close()
-        NSApp.activate(ignoringOtherApps: true)
-        NSAlert(error: error).runModal()
+        closeMenu()
+        // Leave the menu's tracking loop before running a modal alert.
+        Task { @MainActor in
+            NSApp.activate(ignoringOtherApps: true)
+            NSAlert(error: error).runModal()
+        }
     }
 
     private func openAccessibilitySettings() {

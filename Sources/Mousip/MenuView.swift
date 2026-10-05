@@ -137,8 +137,7 @@ struct MenuView: View {
             Spacer()
 
             Toggle("Enabled", isOn: $model.isEnabled)
-                .toggleStyle(.switch)
-                .labelsHidden()
+                .toggleStyle(MenuSwitchStyle(width: 36, height: 21))
                 .help(model.isEnabled ? "Pause Mousip" : "Resume Mousip")
         }
     }
@@ -165,7 +164,6 @@ struct MenuView: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .keyboardShortcut("q")
         }
         .padding(.horizontal, 4)
     }
@@ -238,14 +236,36 @@ private struct SettingRow: View {
             Spacer(minLength: 8)
 
             Toggle(title, isOn: $isOn)
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .labelsHidden()
+                .toggleStyle(MenuSwitchStyle())
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture { isOn.toggle() }
+    }
+}
+
+/// A hand-drawn switch. The system one renders gray inside a menu, whose window is never key.
+private struct MenuSwitchStyle: ToggleStyle {
+    var width: CGFloat = 28
+    var height: CGFloat = 16
+
+    func makeBody(configuration: Configuration) -> some View {
+        Capsule()
+            .fill(configuration.isOn ? Color(nsColor: .controlAccentColor) : Color.primary.opacity(0.12))
+            .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 0.5, y: 0.5)
+                    .padding(1.5)
+            }
+            .frame(width: width, height: height)
+            .animation(.easeOut(duration: 0.15), value: configuration.isOn)
+            .contentShape(Capsule())
+            .onTapGesture { configuration.isOn.toggle() }
+            .accessibilityRepresentation {
+                Toggle(isOn: configuration.$isOn) { configuration.label }
+            }
     }
 }
 

@@ -81,7 +81,7 @@ You only need the Command Line Tools (Swift 6), not Xcode.
 
 ## 🖱️ The menu
 
-Click the Mousip icon (a mouse) in the menu bar to open its panel.
+Click the Mousip icon (a mouse) in the menu bar to open its menu.
 
 | Item | |
 | --- | --- |
@@ -94,7 +94,7 @@ Click the Mousip icon (a mouse) in the menu bar to open its panel.
 If something needs your attention (missing permission, disabled shortcuts) a banner at the top
 takes you straight to the right settings page.
 
-**Hold <kbd>⌥</kbd> while opening the panel** for the extras:
+**Hold <kbd>⌥</kbd> while opening the menu** for the extras:
 
 - **Left / Right / Mission Ctrl** buttons: check the shortcuts without the mouse.
 - **Debug Logging**: logs every scroll event and every middle click target. To read it:
@@ -157,9 +157,8 @@ movement and replayed to the app, so they keep working.
 
 ```
 Sources/Mousip/
-├── AppDelegate.swift             menu bar icon, panel actions and permissions
-├── StatusPanel.swift             the drop-down panel window
-├── MenuView.swift                the panel content (SwiftUI)
+├── AppDelegate.swift             menu bar icon, menu and permissions
+├── MenuView.swift                the menu content (SwiftUI)
 ├── EventTap.swift                shared CGEventTap wrapper
 ├── ScrollInterceptor.swift       tilt filtering and grouping into gestures
 ├── MiddleClickInterceptor.swift  middle click → Mission Control (cursor + Accessibility checks)
