@@ -9,6 +9,7 @@ final class Settings {
         static let repeatWhileHeld = "repeatWhileHeld"
         static let middleClickMissionControl = "middleClickMissionControl"
         static let debugLogging = "debugLogging"
+        static let checkForUpdates = "checkForUpdates"
     }
 
     private let defaults = UserDefaults.standard
@@ -20,6 +21,7 @@ final class Settings {
             Key.repeatWhileHeld: false,
             Key.middleClickMissionControl: false,
             Key.debugLogging: false,
+            Key.checkForUpdates: true,
         ])
     }
 
@@ -44,6 +46,12 @@ final class Settings {
     var middleClickMissionControl: Bool {
         get { defaults.bool(forKey: Key.middleClickMissionControl) }
         set { defaults.set(newValue, forKey: Key.middleClickMissionControl) }
+    }
+
+    /// Looks for a new release on GitHub at launch and once a day.
+    var checkForUpdates: Bool {
+        get { defaults.bool(forKey: Key.checkForUpdates) }
+        set { defaults.set(newValue, forKey: Key.checkForUpdates) }
     }
 
     /// Writes every scroll event to the system log (subsystem "com.mousip.app").

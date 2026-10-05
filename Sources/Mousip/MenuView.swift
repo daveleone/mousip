@@ -10,6 +10,7 @@ final class MenuModel: ObservableObject {
 
     enum Action {
         case openAccessibilitySettings, openKeyboardSettings
+        case checkForUpdates, installUpdate, openReleaseNotes
         case testLeft, testRight, testMissionControl
         case quit
     }
@@ -23,6 +24,7 @@ final class MenuModel: ObservableObject {
     @Published var problem: Problem?
     /// Developer extras, shown when ⌥ is held while opening the panel.
     @Published var showsExtras = false
+    @Published var update: Updater.State = .idle
 
     @Published var isEnabled: Bool { didSet { settings.isEnabled = isEnabled; onSettingsChange() } }
     @Published var invertDirection: Bool { didSet { settings.invertDirection = invertDirection } }
@@ -31,6 +33,7 @@ final class MenuModel: ObservableObject {
         didSet { settings.middleClickMissionControl = middleClickMissionControl }
     }
     @Published var debugLogging: Bool { didSet { settings.debugLogging = debugLogging } }
+    @Published var checkForUpdates: Bool { didSet { settings.checkForUpdates = checkForUpdates } }
 
     @Published var launchAtLogin: Bool {
         didSet {
@@ -56,6 +59,7 @@ final class MenuModel: ObservableObject {
         repeatWhileHeld = settings.repeatWhileHeld
         middleClickMissionControl = settings.middleClickMissionControl
         debugLogging = settings.debugLogging
+        checkForUpdates = settings.checkForUpdates
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
@@ -80,6 +84,10 @@ struct MenuView: View {
                 ProblemBanner(problem: problem, perform: model.perform)
             }
 
+            if let release = model.update.release {
+                UpdateBanner(release: release, state: model.update, perform: model.perform)
+            }
+
             Card(title: "Tilt Wheel", footer: "Hold ⌥ while tilting to scroll sideways as usual.") {
                 SettingRow(icon: "arrow.left.arrow.right", tint: .blue, title: "Invert Direction",
                            isOn: $model.invertDirection)
@@ -97,6 +105,9 @@ struct MenuView: View {
 
             Card(title: "General") {
                 SettingRow(icon: "power", tint: .green, title: "Launch at Login", isOn: $model.launchAtLogin)
+                CardDivider()
+                SettingRow(icon: "arrow.triangle.2.circlepath", tint: .teal, title: "Check for Updates",
+                           subtitle: "At launch and once a day", isOn: $model.checkForUpdates)
             }
 
             if model.showsExtras {
@@ -152,11 +163,28 @@ struct MenuView: View {
     }
 
     private var footer: some View {
-        HStack {
-            if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
-                Text("Version \(version)").font(.caption).foregroundStyle(.tertiary)
+        HStack(spacing: 8) {
+            if model.update == .checking {
+                ProgressView().controlSize(.mini)
             }
+            Text(footerText)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .help(footerHelp)
+
             Spacer()
+
+            Button {
+                model.perform(.checkForUpdates)
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .disabled(model.update == .checking || model.update.isInstalling)
+            .help("Check for Updates")
+
             Button {
                 model.perform(.quit)
             } label: {
@@ -166,6 +194,19 @@ struct MenuView: View {
             .controlSize(.small)
         }
         .padding(.horizontal, 4)
+    }
+
+    private var footerText: String {
+        switch model.update {
+        case .checking: "Checking for updates…"
+        case .upToDate: "Mousip \(Updater.currentVersion) is up to date"
+        case .checkFailed: "Couldn't check for updates"
+        default: "Version \(Updater.currentVersion)"
+        }
+    }
+
+    private var footerHelp: String {
+        if case .checkFailed(let message) = model.update { message } else { "" }
     }
 }
 
@@ -311,6 +352,79 @@ private struct ProblemBanner: View {
         case .accessibility: ("Grant Access…", .openAccessibilitySettings)
         case .restart: nil
         case .shortcutsDisabled: ("Enable Shortcuts…", .openKeyboardSettings)
+        }
+    }
+}
+
+private struct UpdateBanner: View {
+    var release: Updater.Release
+    var state: Updater.State
+    var perform: (MenuModel.Action) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(Color.accentColor)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Mousip \(release.version) is available").font(.callout.weight(.medium))
+
+                if case .installFailed(_, let message) = state {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if Updater.isAdHocSigned {
+                    Text("After updating, Mousip asks for Accessibility access again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 8) {
+                    if state.isInstalling {
+                        ProgressView().controlSize(.small)
+                        Text("Installing…").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Button(state.isFailedInstall ? "Try Again" : "Install & Relaunch") {
+                            perform(.installUpdate)
+                        }
+                        .controlSize(.small)
+                        Button("What's New") { perform(.openReleaseNotes) }
+                            .buttonStyle(.link)
+                            .controlSize(.small)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(0.25))
+        )
+    }
+}
+
+private extension Updater.State {
+    var isInstalling: Bool {
+        if case .installing = self { true } else { false }
+    }
+
+    var isFailedInstall: Bool {
+        if case .installFailed = self { true } else { false }
+    }
+}
+
+/// Resizes itself when its SwiftUI content changes size, so an open menu follows along.
+final class MenuHostingView<Content: View>: NSHostingView<Content> {
+    override func layout() {
+        super.layout()
+        let size = intrinsicContentSize
+        if size != frame.size {
+            setFrameSize(size)
         }
     }
 }

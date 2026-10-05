@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var interceptor = ScrollInterceptor(settings: settings)
     private lazy var middleClick = MiddleClickInterceptor(settings: settings)
     private lazy var model = MenuModel(settings: settings)
+    private lazy var updater = Updater(settings: settings)
     private var statusItem: NSStatusItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.onSettingsChange = { [weak self] in self?.updateIcon() }
         model.onAction = { [weak self] in self?.perform($0) }
         model.onError = { [weak self] in self?.show($0) }
+        updater.onStateChange = { [weak self] in self?.model.update = $0 }
 
         interceptor.onSwitch = { [switcher] direction in
             switcher.switchSpace(direction)
@@ -28,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         startWhenTrusted()
         updateIcon()
+        updater.startAutomaticChecks()
     }
 
     // MARK: - Permissions
@@ -87,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // A fresh hosting view measures the current state right away; an existing one would
         // report its old size until the next run loop pass, cutting off newly shown sections.
-        let view = NSHostingView(rootView: MenuView(model: model))
+        let view = MenuHostingView(rootView: MenuView(model: model))
         view.frame.size = view.fittingSize
         menu.items.first?.view = view
     }
@@ -107,6 +110,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .openKeyboardSettings:
             closeMenu()
             openKeyboardSettings()
+        case .checkForUpdates:
+            Task { await updater.check() }
+        case .installUpdate:
+            Task { await updater.install() }
+        case .openReleaseNotes:
+            closeMenu()
+            if let url = updater.state.release?.notesURL {
+                NSWorkspace.shared.open(url)
+            }
         case .testLeft:
             afterMenuCloses { [switcher] in switcher.switchSpace(.left) }
         case .testRight:
