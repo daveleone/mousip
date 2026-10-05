@@ -22,6 +22,9 @@ final class MiddleClickInterceptor {
     /// Moving farther than this while the button is down turns the click into a drag (canvas panning, etc.).
     private static let dragThreshold: Double = 6
     private static let middleButton: Int64 = 2
+    /// Height of a window's top band (title bar, toolbar, browser tab strip) where clicks are always passed through:
+    /// Chrome exposes its tabs to Accessibility as plain groups, so a middle click to close one looks like empty space.
+    private static let titleBarHeight: Double = 48
 
     /// Roles on which a middle click means something: open a link in a new tab, close a tab, paste…
     private static let interactiveRoles: Set<String> = [
@@ -64,6 +67,7 @@ final class MiddleClickInterceptor {
             guard settings.isEnabled, settings.middleClickMissionControl,
                   event.flags.isDisjoint(with: [.maskCommand, .maskShift, .maskAlternate, .maskControl]),
                   !isPointingHandCursor,
+                  !isInWindowTitleBar(event.location),
                   !isOverInteractiveElement(event.location)
             else { return false }
             pendingClick = event.location
@@ -124,6 +128,33 @@ final class MiddleClickInterceptor {
         return abs(a.width / a.height - b.width / b.height) < tolerance
             && abs(cursor.hotSpot.x / a.width - reference.hotSpot.x / b.width) < tolerance
             && abs(cursor.hotSpot.y / a.height - reference.hotSpot.y / b.height) < tolerance
+    }
+
+    // MARK: - Window
+
+    /// `true` if the point is in the top band of the frontmost regular window under it.
+    /// Uses the window server, so it works even where Accessibility tells nothing useful.
+    private func isInWindowTitleBar(_ point: CGPoint) -> Bool {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]]
+        else { return false }
+        // Front to back: the first normal-level window containing the point is the one under the cursor.
+        for info in windows where (info[kCGWindowLayer as String] as? Int) == 0 {
+            guard let dict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary),
+                  bounds.contains(point)
+            else { continue }
+            let inTitleBar = point.y - bounds.minY < Self.titleBarHeight
+            if settings.debugLogging {
+                let owner = info[kCGWindowOwnerName as String] as? String ?? "?"
+                log.notice("""
+                    middle click in \(owner, privacy: .public) window, \
+                    \(Int(point.y - bounds.minY), privacy: .public) pt from the top, titleBar=\(inTitleBar, privacy: .public)
+                    """)
+            }
+            return inTitleBar
+        }
+        return false
     }
 
     // MARK: - Accessibility

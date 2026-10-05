@@ -112,6 +112,7 @@ So Mousip looks at the cursor and asks the Accessibility API what's under it, an
 | --- | --- |
 | Anything showing the pointing-hand cursor (links, in any browser) | Passed to the app as usual |
 | Link, tab, button, menu, Dock icon, text field | Passed to the app as usual |
+| A window's title bar or tab strip (top 48 pt) | Passed to the app as usual |
 | Page background, plain text, window background, desktop | Opens Mission Control |
 | Anything, with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>⌥</kbd> or <kbd>⌃</kbd> held | Passed to the app as usual |
 | An app that doesn't answer | Passed to the app as usual |
@@ -135,7 +136,8 @@ movement and replayed to the app, so they keep working.
 4. Handled horizontal events are consumed, so apps don't scroll sideways.
    With <kbd>⌥</kbd> (or <kbd>⇧</kbd>) held, they pass through untouched.
 5. A second tap watches the middle button. On press it checks whether the cursor is the pointing hand
-   (`NSCursor.currentSystem`), then hit-tests the element under the cursor
+   (`NSCursor.currentSystem`) or the click lands in the top band of a window (`CGWindowListCopyWindowInfo`,
+   so browser tabs can be closed), then hit-tests the element under the cursor
    (`AXUIElementCopyElementAtPosition`) and walks up its ancestors looking for something clickable.
    If there's nothing, it swallows the click and opens Mission Control on release
    (by launching `Mission Control.app`, so it works whatever shortcut is assigned to it).
