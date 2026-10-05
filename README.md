@@ -81,22 +81,22 @@ You only need the Command Line Tools (Swift 6), not Xcode.
 
 ## 🖱️ The menu
 
-Click the Mousip icon (three side-by-side panels) in the menu bar.
+Click the Mousip icon (a mouse) in the menu bar to open its panel.
 
 | Item | |
 | --- | --- |
-| **Enabled** | Pauses or resumes everything. The icon turns gray while paused. |
+| **Main switch** (next to the name) | Pauses or resumes everything. The icon turns gray while paused. |
 | **Invert Direction** | For when tilting right takes you left. |
 | **Repeat While Held** | Keeps switching Spaces every 0.45 s while the wheel stays tilted. |
-| **Middle Click for Mission Control** | Opens Mission Control on a middle click on an empty spot. Off by default. |
+| **Middle Click › Mission Control** | Opens Mission Control on a middle click on an empty spot. Off by default. |
 | **Launch at Login** | Starts Mousip when you log in. |
 
-If something needs your attention (missing permission, disabled shortcuts) a ⚠︎ item at the top
+If something needs your attention (missing permission, disabled shortcuts) a banner at the top
 takes you straight to the right settings page.
 
-**Hold <kbd>⌥</kbd> while opening the menu** for the extras:
+**Hold <kbd>⌥</kbd> while opening the panel** for the extras:
 
-- **Test** › Space Left / Space Right / Mission Control: checks the shortcuts without the mouse.
+- **Left / Right / Mission Ctrl** buttons: check the shortcuts without the mouse.
 - **Debug Logging**: logs every scroll event and every middle click target. To read it:
 
   ```sh
@@ -157,7 +157,9 @@ movement and replayed to the app, so they keep working.
 
 ```
 Sources/Mousip/
-├── AppDelegate.swift             menu bar icon, menu and permissions
+├── AppDelegate.swift             menu bar icon, panel actions and permissions
+├── StatusPanel.swift             the drop-down panel window
+├── MenuView.swift                the panel content (SwiftUI)
 ├── EventTap.swift                shared CGEventTap wrapper
 ├── ScrollInterceptor.swift       tilt filtering and grouping into gestures
 ├── MiddleClickInterceptor.swift  middle click → Mission Control (cursor + Accessibility checks)
