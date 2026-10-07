@@ -23,6 +23,12 @@ Optionally, a middle click on an empty spot opens Mission Control.
 Built for the **HP 480 Comfort Bluetooth Mouse**, it works with any mouse that reports wheel tilt
 as horizontal scrolling (HID "AC Pan").
 
+
+
+https://github.com/user-attachments/assets/c76ba5da-de30-459d-8465-7f5a9e3eb818
+
+
+
 ## ✨ Features
 
 - **Tilt to switch Spaces.** One tilt is one Space, however many events the mouse sends.
