@@ -11,6 +11,7 @@
 ![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
 ![No Xcode required](https://img.shields.io/badge/Xcode-not%20required-6A3DF0)
 ![Menu bar app](https://img.shields.io/badge/lives%20in-the%20menu%20bar-2B5BFF)
+[![MIT License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 </div>
 
@@ -186,3 +187,7 @@ To redraw the icon after editing `scripts/make-icon.swift`:
 ```sh
 swift scripts/make-icon.swift
 ```
+
+## 📄 License
+
+Mousip is released under the [MIT License](LICENSE): use it, modify it and share it freely.
